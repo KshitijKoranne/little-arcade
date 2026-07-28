@@ -1,0 +1,19 @@
+{
+  "name": "The Little Arcade",
+  "short_name": "Arcade",
+  "description": "A small pixel-art arcade with six games for young children.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#12132b",
+  "theme_color": "#12132b",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

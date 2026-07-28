@@ -1,0 +1,9 @@
+.git
+.gitignore
+node_modules
+*.md
+!README.md
+build.js
+build-min.js
+setup-git.sh
+.DS_Store

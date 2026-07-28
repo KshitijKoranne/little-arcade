@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,minimum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#12132b">
+<meta name="description" content="A small pixel-art arcade with six games for young children.">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Arcade">
+<meta name="format-detection" content="telephone=no">
+<title>The Little Arcade</title>
+<link rel="stylesheet" href="css/style.css">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 8'><rect width='8' height='8' fill='%2312132b'/><rect x='1' y='2' width='6' height='4' fill='%23ff9ec4'/><rect x='2' y='1' width='1' height='1' fill='%23ffd45c'/><rect x='5' y='1' width='1' height='1' fill='%23ffd45c'/></svg>">
+</head>
+<body>
+
+<div id="cabinet">
+  <div id="screenwrap">
+    <canvas id="screen" width="480" height="270"></canvas>
+    <div id="scanlines"></div>
+    <div id="glare"></div>
+  </div>
+</div>
+
+<!-- Portrait phones get a friendly nudge instead of a letterboxed sliver. -->
+<div id="rotate" aria-hidden="true">
+  <div class="rotate-inner">
+    <div class="phone"><div class="phone-screen"></div></div>
+    <p class="rotate-title">TURN ME SIDEWAYS</p>
+    <p class="rotate-sub">The arcade needs a wide screen</p>
+  </div>
+</div>
+
+<noscript><p class="noscript">This arcade needs JavaScript switched on.</p></noscript>
+
+<!-- ============ CORE ENGINE ============ -->
+<script src="js/core/util.js"></script>
+<script src="js/core/font.js"></script>
+<script src="js/core/sprites.js"></script>
+<script src="js/core/backdrop.js"></script>
+<script src="js/core/audio.js"></script>
+<script src="js/core/input.js"></script>
+<script src="js/core/particles.js"></script>
+<script src="js/core/save.js"></script>
+<script src="js/core/ui.js"></script>
+<script src="js/core/scene.js"></script>
+
+<!-- ============ GAMES ============ -->
+<!-- To add a new game: drop a file here, call RA.registerGame({...}) inside it. -->
+<script src="js/games/hub.js"></script>
+<script src="js/games/catch.js"></script>
+<script src="js/games/memory.js"></script>
+<script src="js/games/maths.js"></script>
+<script src="js/games/hopper.js"></script>
+<script src="js/games/maze.js"></script>
+<script src="js/games/paint.js"></script>
+
+<!-- ============ BOOT ============ -->
+<script src="js/boot.js"></script>
+</body>
+</html>
