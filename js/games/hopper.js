@@ -16,13 +16,15 @@
   var GRAVITY = 980;
   var JUMP_V = -432;
   var SPRING_V = -720;
+  /* Overridden per age band. A young child steers bang-bang — hold left,
+     hold right — so a high top speed makes them overshoot the platform
+     rather than land on it. Slower is genuinely easier here. */
   var MOVE_ACC = 980;
   var MAX_VX = 215;
 
   /* How far down the screen the camera holds her. This must leave more
      than one full jump of headroom below her apex, or she can fall past
      the bottom of the screen onto a platform she was standing on. */
-  var CAM_ANCHOR = 0.44;
   var START_PLAT_Y = 40;
 
   /* Sky bands she climbs through. */
@@ -89,12 +91,18 @@
     scene: function () {
       var state = 'intro';    // intro | play | over
       var t = 0, stateT = 0;
+      var cfg = RA.tune.get('hopper');
+      var CAM_ANCHOR = cfg.camAnchor;
       var player, plats, pickups, camY, startY, maxUp, best;
       var score = 0, starsGot = 0, resultStars = 0, starsEarned = 0, isRecord = false;
       var topGen = 0, nextId = 0;
-      var puffT = 0;
+      var puffT = 0, rescues = 0, rescueT = 0;
 
       function reset() {
+        cfg = RA.tune.get('hopper');
+        CAM_ANCHOR = cfg.camAnchor;
+        MAX_VX = cfg.maxVX;
+        MOVE_ACC = cfg.moveAcc;
         /* She starts standing ON the first platform, not floating above
            it — otherwise her opening jump peaks higher than one jump's
            worth of headroom and she lands below the camera. */
@@ -106,6 +114,7 @@
         camY = player.y - RA.H * CAM_ANCHOR;
         maxUp = 0;
         score = 0; starsGot = 0;
+        rescues = cfg.rescues; rescueT = 0;
         plats = []; pickups = []; nextId = 0;
 
         /* a wide starter platform right under her */
@@ -116,24 +125,29 @@
 
       function generateRow() {
         var height = Math.max(0, Math.floor((startY - topGen) / 6));
-        /* Never wider than a single jump (~94px of rise), with margin.
-           The first stretch is deliberately gentle so a small child gets
-           a run going before it tightens up. */
+        /* One bounce lasts 0.88s and tops out at 215px/s, so she can only
+           cover ~165px sideways with perfect play. A frame-perfect bot
+           still died in 9-13s when this asked for up to 127px, so the
+           reach is now well inside what one comfortable bounce buys. */
         var warmUp = height < 60;
-        var gap = warmUp ? U.rand(34, 42)
-                         : U.rand(38, 48 + Math.min(20, height / 70));
+        var gap = warmUp ? U.rand(cfg.gapMin - 4, cfg.gapMin + 4)
+                         : U.rand(cfg.gapMin, cfg.gapMax + Math.min(cfg.gapGrow, height / 90));
         topGen -= gap;
 
-        var w = warmUp ? Math.round(U.rand(56, 72))
-                       : Math.round(U.rand(38, 58) - Math.min(12, height / 140));
+        var w = warmUp ? Math.round(U.rand(cfg.platMax - 6, cfg.platMax + 10))
+                       : Math.round(U.rand(cfg.platMin, cfg.platMax) -
+                                    Math.min(8, height / 220));
 
-        /* Place it within comfortable reach of the platform below rather
-           than anywhere on the row. One bounce gives roughly 170px of
-           horizontal travel, so a child should never need a perfect
-           full-speed run to make the next step. */
+        /* Every so often, a wide ledge she can hardly miss. It turns a
+           bad run into a pause rather than a fall. */
+        var isSafety = cfg.safetyEvery > 0 && (nextId % cfg.safetyEvery === 0);
+        if (isSafety) w = cfg.safetyW;
+
         var prev = plats.length ? plats[plats.length - 1] : null;
         var fromX = prev ? prev.x + prev.w / 2 : RA.W / 2;
-        var reach = warmUp ? 62 : 96 + Math.min(40, height / 16);
+        var reach = isSafety ? cfg.reachBase * 0.5
+                  : warmUp   ? cfg.reachBase * 0.7
+                             : cfg.reachBase + Math.min(cfg.reachGrow, height / 40);
         var cx = fromX + U.rand(-reach, reach);
         cx = U.clamp(cx, w / 2 + 6, RA.W - w / 2 - 6);
         var x = cx - w / 2;
@@ -147,7 +161,7 @@
           vx: kind === 'move' ? (Math.random() < 0.5 ? -1 : 1) * U.rand(22, 42) : 0,
           springT: 0
         };
-        if (Math.random() < 0.10 && height > 40) p.kind = 'spring';
+        if (Math.random() < cfg.springPct && height > 40) p.kind = 'spring';
         plats.push(p);
 
         if (Math.random() < 0.22) {
@@ -169,7 +183,8 @@
 
         debug: function () {
           return {
-            state: state, score: score, starsGot: starsGot, camY: Math.round(camY),
+            state: state, score: score, starsGot: starsGot, rescues: rescues,
+            camY: Math.round(camY),
             px: player && Math.round(player.x), py: player && Math.round(player.y),
             vy: player && Math.round(player.vy),
             vx: player && Math.round(player.vx),
@@ -298,8 +313,41 @@
             });
           }
 
-          /* ---- fall out ---- */
-          if (player.y - camY > RA.H + 30) die();
+          /* ---- fall out ----
+             The first falls are caught by a balloon rather than ending the
+             run. A child learns the controls from the recovery; ending it
+             at the first mistake teaches nothing and just stings.        */
+          if (player.y - camY > RA.H + 30) {
+            if (rescues > 0) {
+              rescues--;
+              /* find the highest platform that is still on screen */
+              var catcher = null;
+              for (var ri = 0; ri < plats.length; ri++) {
+                var rp = plats[ri];
+                var sy = rp.y - camY;
+                if (sy > 40 && sy < RA.H - 20 && (!catcher || rp.y > catcher.y)) catcher = rp;
+              }
+              if (catcher) {
+                player.x = catcher.x + catcher.w / 2;
+                player.y = catcher.y - player.h / 2 - 1;
+              } else {
+                player.x = RA.W / 2;
+                player.y = camY + RA.H * 0.5;
+              }
+              player.vx = 0;
+              player.vy = JUMP_V;
+              rescueT = 1.2;
+              RA.audio.sfx('powerup');
+              RA.fx.popText('SAVED!', player.x, player.y - camY - 22,
+                            { color: C.gold, scale: 3 });
+              RA.fx.burst(player.x, player.y - camY, {
+                count: 20, colors: ['#ff9ec4', '#ffd45c', '#ffffff'],
+                speedMin: 30, speedMax: 100
+              });
+            } else {
+              die();
+            }
+          }
 
           player.frame = player.vy < 0 ? 0 : 1;
         },
@@ -365,6 +413,11 @@
           });
           RA.spr.draw(ctx, 'star_small', RA.W / 2 - 20, 8, {});
           RA.font.draw(ctx, starsGot, RA.W / 2 - 8, 8, { scale: 2, color: C.gold });
+
+          /* balloons left = falls that will be caught */
+          for (var rb = 0; rb < rescues; rb++) {
+            RA.spr.draw(ctx, 'heart', RA.W / 2 + 26 + rb * 10, 8, {});
+          }
           RA.font.draw(ctx, 'BEST ' + Math.max(best, score) + 'M', RA.W - 8, 9, {
             scale: 1, align: 'right', color: C.mist
           });

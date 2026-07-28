@@ -126,14 +126,18 @@
       var t = 0, stateT = 0;
       var level = 1, maze = null, ts = 12, ox = 0, oy = 0;
       var player = null, stars = [], gate = null, bee = null;
-      var collected = 0, moves = 0, levelT = 0;
+      var collected = 0, moves = 0, levelT = 0, graceT = 0;
       var resultStars = 0, starsEarned = 0, isRecord = false;
       var held = { x: 0, y: 0 };
 
       function buildLevel(n) {
         level = n;
-        var cw = U.clamp(6 + Math.floor(n / 2), 6, 15);
-        var ch = U.clamp(3 + Math.floor(n / 3), 3, 7);
+        /* Capped so the tiles stay legible and a level never turns into a
+           two-minute walk; the old build shrank to 15px tiles by level 12
+           and asked for ~32s of pure movement. */
+        var mcfg = RA.tune.get('maze');
+        var cw = U.clamp(6 + Math.floor(n / 2), 6, mcfg.cwMax);
+        var ch = U.clamp(3 + Math.floor(n / 3), 3, mcfg.chMax);
         maze = generate(cw, ch, U.rng(1337 + n * 7919 + Math.floor(Math.random() * 1000)));
 
         var availW = RA.W - 16, availH = RA.H - TOP - 12;
@@ -148,7 +152,8 @@
         });
         cells = U.shuffle(cells);
 
-        var starCount = Math.min(cells.length - 1, 2 + Math.floor(n / 2) + 1);
+        var starCount = Math.min(cells.length - 1,
+                                 mcfg.starBase + Math.floor(n / mcfg.starGrow));
         stars = cells.slice(0, starCount).map(function (c) {
           return { cx: c.x, cy: c.y, taken: false, ph: Math.random() * 6 };
         });
@@ -160,10 +165,15 @@
         }
         gate = { cx: far.x, cy: far.y, open: false, t: 0 };
 
+        /* The bee only shows up once she has the hang of it, and it always
+           starts as far from her as the maze allows. */
         bee = null;
-        if (n >= 2) {
-          var bc = cells[Math.floor(cells.length / 2)];
-          bee = { x: bc.x, y: bc.y, tx: bc.x, ty: bc.y, moving: false, dir: 0, cool: 0 };
+        graceT = 0;
+        if (n >= mcfg.beeFrom) {
+          var bc = farthestCellFrom(1, 1);
+          if (bc.d >= 4) {
+            bee = { x: bc.x, y: bc.y, tx: bc.x, ty: bc.y, moving: false, cool: 0, doze: 0 };
+          }
         }
 
         collected = 0; moves = 0; levelT = 0;
@@ -171,6 +181,42 @@
 
       function walkable(cx, cy) {
         return cx >= 0 && cy >= 0 && cx < maze.W && cy < maze.H && maze.grid[cy][cx] === 0;
+      }
+
+      /* Breadth-first distances from a cell, in steps through the maze —
+         straight-line distance is meaningless with walls in the way. */
+      function distancesFrom(sx, sy) {
+        var dist = [];
+        for (var y = 0; y < maze.H; y++) {
+          dist[y] = [];
+          for (var x = 0; x < maze.W; x++) dist[y][x] = -1;
+        }
+        if (!walkable(sx, sy)) return dist;
+        dist[sy][sx] = 0;
+        var queue = [[sx, sy]], head = 0;
+        var D = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+        while (head < queue.length) {
+          var c = queue[head++];
+          for (var d = 0; d < 4; d++) {
+            var nx = c[0] + D[d][0], ny = c[1] + D[d][1];
+            if (!walkable(nx, ny) || dist[ny][nx] !== -1) continue;
+            dist[ny][nx] = dist[c[1]][c[0]] + 1;
+            queue.push([nx, ny]);
+          }
+        }
+        return dist;
+      }
+
+      /** The reachable cell furthest (in steps) from cx,cy. */
+      function farthestCellFrom(cx, cy) {
+        var dist = distancesFrom(cx, cy);
+        var best = null, bestD = -1;
+        for (var y = 1; y < maze.H - 1; y++) {
+          for (var x = 1; x < maze.W - 1; x++) {
+            if (dist[y][x] > bestD) { bestD = dist[y][x]; best = { x: x, y: y, d: bestD }; }
+          }
+        }
+        return best || { x: 1, y: 1, d: 0 };
       }
 
       function tryMove(dx, dy) {
@@ -216,7 +262,9 @@
             ox: ox, oy: oy, ts: ts, W: maze && maze.W, H: maze && maze.H,
             grid: maze && maze.grid,
             starPos: stars.map(function (s) { return [s.cx, s.cy, s.taken]; }),
-            gatePos: gate && [gate.cx, gate.cy]
+            gatePos: gate && [gate.cx, gate.cy],
+            graceT: +graceT.toFixed(2),
+            bee: bee ? { x: +bee.x.toFixed(2), y: +bee.y.toFixed(2), doze: +bee.doze.toFixed(2) } : null
           };
         },
 
@@ -283,47 +331,91 @@
             if (player.cx === gate.cx && player.cy === gate.cy) finishLevel();
           }
 
-          /* ---- bee ---- */
+          /* ---- bee ----
+             Rules that keep this fair for a small child:
+               - it can never step onto the cell she is standing on, so it
+                 cannot corner her in a dead end
+               - after a bump she gets a long grace period and the bee dozes
+               - she is never teleported; being yanked back to the start of a
+                 maze is a miserable punishment at this age
+               - the bee retreats to the furthest reachable cell, measured in
+                 steps through the maze, not straight-line distance          */
+          if (graceT > 0) graceT = Math.max(0, graceT - dt);
+
           if (bee) {
-            if (bee.moving) {
-              var bs = 2.6 * dt;
+            if (bee.doze > 0) {
+              bee.doze = Math.max(0, bee.doze - dt);
+            } else if (bee.moving) {
+              var bs = 2.3 * dt;
               bee.x = U.approach(bee.x, bee.tx, bs);
               bee.y = U.approach(bee.y, bee.ty, bs);
               if (bee.x === bee.tx && bee.y === bee.ty) bee.moving = false;
             } else {
               bee.cool -= dt;
               if (bee.cool <= 0) {
-                bee.cool = U.rand(0.15, 0.5);
+                bee.cool = U.rand(0.25, 0.6);
                 var opts = [];
                 var D = [[1, 0], [-1, 0], [0, 1], [0, -1]];
                 for (var d = 0; d < 4; d++) {
                   var nx2 = Math.round(bee.x) + D[d][0], ny2 = Math.round(bee.y) + D[d][1];
-                  if (walkable(nx2, ny2)) opts.push([nx2, ny2]);
+                  if (!walkable(nx2, ny2)) continue;
+                  if (nx2 === player.cx && ny2 === player.cy) continue;   // never land on her
+                  opts.push([nx2, ny2]);
                 }
                 if (opts.length) {
-                  var o = U.pick(opts);
-                  bee.tx = o[0]; bee.ty = o[1]; bee.moving = true;
+                  /* Shy: if she is close, prefer whichever way opens the gap.
+                     Otherwise it would be able to park in a corridor she has
+                     to walk through and tax her every single time. */
+                  var pd = distancesFrom(player.cx, player.cy);
+                  var here = pd[Math.round(bee.y)] ? pd[Math.round(bee.y)][Math.round(bee.x)] : 99;
+                  if (here >= 0 && here <= 2) {
+                    var bestOpt = opts[0], bestD = -1;
+                    for (var oi = 0; oi < opts.length; oi++) {
+                      var od = pd[opts[oi][1]][opts[oi][0]];
+                      if (od > bestD) { bestD = od; bestOpt = opts[oi]; }
+                    }
+                    bee.tx = bestOpt[0]; bee.ty = bestOpt[1];
+                  } else {
+                    var o = U.pick(opts);
+                    bee.tx = o[0]; bee.ty = o[1];
+                  }
+                  bee.moving = true;
                 }
               }
             }
-            if (Math.abs(bee.x - player.x) < 0.6 && Math.abs(bee.y - player.y) < 0.6) {
+
+            var touching = Math.abs(bee.x - player.x) < 0.6 &&
+                           Math.abs(bee.y - player.y) < 0.6;
+
+            if (touching && graceT <= 0 && bee.doze <= 0) {
+              graceT = 2.6;
+              bee.doze = 2.6;
+
               if (collected > 0) {
                 collected--;
                 gate.open = false;
                 for (var q = stars.length - 1; q >= 0; q--) {
                   if (stars[q].taken) { stars[q].taken = false; break; }
                 }
-                RA.fx.popText('OH NO!', ox + player.x * ts + ts / 2, oy + player.y * ts - 6,
-                              { color: C.coral, scale: 2 });
+                RA.fx.popText('OOPS! LOST A STAR', ox + player.x * ts + ts / 2,
+                              oy + player.y * ts - 8, { color: C.coral, scale: 2 });
+              } else {
+                RA.fx.popText('BUZZ OFF!', ox + player.x * ts + ts / 2,
+                              oy + player.y * ts - 8, { color: C.gold, scale: 2 });
               }
+
               RA.audio.sfx('wrong');
-              RA.fx.shake(4, 0.25);
-              /* nudge her back to the start of the corridor */
-              player.cx = player.tx = 1; player.cy = player.ty = 1;
-              player.x = 1; player.y = 1; player.moving = false;
-              bee.x = bee.tx = Math.round(maze.W / 2);
-              bee.y = bee.ty = Math.round(maze.H / 2);
-              if (!walkable(bee.x, bee.y)) { bee.x = bee.tx = 1; bee.y = bee.ty = 1; }
+              RA.fx.shake(3, 0.18);
+              RA.fx.burst(ox + bee.x * ts + ts / 2, oy + bee.y * ts + ts / 2, {
+                count: 10, colors: ['#ffd45c', '#fff0bd'], speedMin: 20, speedMax: 60
+              });
+
+              /* send it as far away as the maze allows */
+              var away = farthestCellFrom(player.cx, player.cy);
+              bee.x = bee.tx = away.x;
+              bee.y = bee.ty = away.y;
+              bee.moving = false;
+              bee.cool = 0.8;
             }
           }
         },
@@ -374,18 +466,27 @@
                            oy + s.cy * ts + ts / 2 + Math.sin(t * 3 + s.ph) * 2, {});
             }
 
-            /* bee */
+            /* bee — visibly asleep during the grace period */
             if (bee) {
+              var dozing = bee.doze > 0;
               RA.spr.drawC(ctx, 'sleepy_bee', ox + bee.x * ts + ts / 2,
-                           oy + bee.y * ts + ts / 2 + Math.sin(t * 6) * 1.5,
-                           { frame: Math.floor(t * 10) % 2 });
+                           oy + bee.y * ts + ts / 2 + Math.sin(t * (dozing ? 2 : 6)) * 1.5,
+                           { frame: dozing ? 1 : Math.floor(t * 10) % 2,
+                             alpha: dozing ? 0.55 : 1 });
+              if (dozing) {
+                RA.font.draw(ctx, 'ZZZ', ox + bee.x * ts + ts / 2 + 8,
+                             oy + bee.y * ts - 4 + Math.sin(t * 3) * 2,
+                             { scale: 1, color: C.cream, align: 'center' });
+              }
             }
 
-            /* player */
-            var pspr = player.moving ? 'girl_run' : 'girl_idle';
-            RA.spr.drawC(ctx, 'girl_idle', ox + player.x * ts + ts / 2,
-                         oy + player.y * ts + ts / 2 - 2,
-                         { flipX: player.face < 0, scale: ts >= 14 ? 1 : 0.85 });
+            /* player — blinks while she cannot be bumped again */
+            var invuln = graceT > 0;
+            if (!invuln || Math.floor(t * 10) % 2 === 0) {
+              RA.spr.drawC(ctx, 'girl_idle', ox + player.x * ts + ts / 2,
+                           oy + player.y * ts + ts / 2 - 2,
+                           { flipX: player.face < 0, scale: ts >= 14 ? 1 : 0.85 });
+            }
           }
 
           /* ---- HUD ---- */

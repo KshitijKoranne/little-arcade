@@ -12,11 +12,25 @@
   var U = RA.util;
   var C = RA.C;
 
-  var LEVELS = [
-    { pairs: 3, cols: 3, rows: 2, name: 'EASY',   color: '#3fae5c', peek: 1.6 },
-    { pairs: 6, cols: 4, rows: 3, name: 'MEDIUM', color: '#f7a72b', peek: 2.0 },
-    { pairs: 8, cols: 4, rows: 4, name: 'HARD',   color: '#ef5b93', peek: 2.4 }
-  ];
+  var NAMES = ['EASY', 'MEDIUM', 'HARD'];
+  var COLORS = ['#3fae5c', '#f7a72b', '#ef5b93'];
+
+  /* Board sizes come from the age band. Visual working memory is about
+     3.5 items at seven rising to ~5.7 in adults, and remembering an item
+     AND where it was is harder than either alone — so the boards stay
+     below raw span. */
+  function levels() {
+    var cfg = RA.tune.get('memory');
+    return cfg.pairs.map(function (p, i) {
+      var cols = p <= 3 ? 3 : p <= 6 ? 4 : p <= 8 ? 4 : 6;
+      var rows = Math.ceil((p * 2) / cols);
+      return {
+        pairs: p, cols: cols, rows: rows,
+        name: NAMES[i], color: COLORS[i],
+        peek: cfg.peek[i], minCard: cfg.minCard
+      };
+    });
+  }
 
   /* Card back: a woven pixel pattern, drawn once per size and cached. */
   var backCache = {};
@@ -74,12 +88,15 @@
       var state = 'levels';   // levels | peek | play | won
       var t = 0, stateT = 0;
       var lvl = null, cards = [], cursor = 0;
+      var LEVELS = levels(), lvlIndex = 0;
       var first = null, lockT = 0, moves = 0, mistakes = 0, found = 0;
       var elapsed = 0;
       var score = 0, resultStars = 0, starsEarned = 0, isRecord = false;
       var layout = { x: 0, y: 0, cw: 0, ch: 0, gap: 0 };
 
       function build(levelIndex) {
+        LEVELS = levels();
+        lvlIndex = levelIndex;
         lvl = LEVELS[levelIndex];
         var chosen = U.shuffle(RA.ANIMALS).slice(0, lvl.pairs);
         var deck = U.shuffle(chosen.concat(chosen));
@@ -91,6 +108,9 @@
         var ch = Math.floor((boxH - gap * (lvl.rows - 1)) / lvl.rows);
         cw = Math.min(cw, Math.floor(ch * 0.78), 66);
         ch = Math.min(ch, Math.floor(cw / 0.78));
+        /* Small fingers need a target roughly double the adult minimum. */
+        cw = Math.max(cw, lvl.minCard);
+        ch = Math.max(ch, Math.round(lvl.minCard * 1.28));
         var gridW = cw * lvl.cols + gap * (lvl.cols - 1);
         var gridH = ch * lvl.rows + gap * (lvl.rows - 1);
         layout = {
@@ -174,7 +194,7 @@
       return {
         music: 'memory',
 
-        enter: function () { t = 0; stateT = 0; state = 'levels'; cards = []; },
+        enter: function () { t = 0; stateT = 0; state = 'levels'; cards = []; LEVELS = levels(); },
 
         update: function (dt) {
           t += dt; stateT += dt;
@@ -348,7 +368,7 @@
               record: isRecord,
               lines: ['TURNS ' + moves + '   TIME ' + Math.floor(elapsed) + 'S']
             });
-            if (r === 'again') build(LEVELS.indexOf(lvl));
+            if (r === 'again') build(lvlIndex);
             else if (r === 'home') { state = 'levels'; stateT = 0; }
           } else {
             if (RA.ui.button(ctx, 430, 3, 44, 20, '<',

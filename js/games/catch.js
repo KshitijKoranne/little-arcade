@@ -125,9 +125,12 @@
       var nextRain = 30, rainQueue = 0, rainT = 0;
       var hurtFlash = 0;
       var resultStars = 0, starsEarned = 0, isRecord = false;
+      var cfg = RA.tune.get('catch'), maxLives = cfg.lives;
 
       function reset() {
-        score = 0; lives = 3; combo = 0; goldCount = 0;
+        cfg = RA.tune.get('catch');
+        maxLives = cfg.lives;
+        score = 0; lives = maxLives; combo = 0; goldCount = 0;
         items = []; spawnT = 0.4; wind = 0; windTarget = 0;
         nextRain = 30; rainQueue = 0;
         basketX = targetX = RA.W / 2; basketVX = 0;
@@ -140,18 +143,24 @@
         var r = Math.random();
         var kind = 'fruit';
         if (!force) {
-          if (r > 0.955) kind = 'gold';
-          else if (r > 0.80) kind = 'bad';
+          if (r > 1 - cfg.goldPct) kind = 'gold';
+          else if (r > 1 - cfg.goldPct - cfg.hazardPct) kind = 'bad';
         }
         var sprite = kind === 'fruit' ? U.pick(RA.FRUITS)
                    : kind === 'gold' ? 'star'
                    : U.pick(['haz_rock', 'haz_thorn']);
+
+        /* Hard ceiling on fall speed: 270px / fallMax is the reaction
+           budget the child gets, and it must never dip under it. */
+        var speed = cfg.fallBase + Math.min(score, cfg.rampCap) * cfg.fallRamp;
+        speed = Math.min(speed, cfg.fallMax) + U.rand(-8, 8);
+
         items.push({
           kind: kind,
           spr: sprite,
           x: U.rand(24, RA.W - 24),
           y: -12,
-          vy: 78 + Math.min(score, 90) * 1.25 + U.rand(-10, 16),
+          vy: speed,
           vx: 0,
           rot: U.rand(-0.4, 0.4),
           spin: U.rand(-2.2, 2.2),
@@ -164,7 +173,7 @@
         combo = 0;
         hurtFlash = 0.28;
         RA.audio.sfx('hurt');
-        RA.fx.shake(7, 0.35);
+        RA.fx.shake(4, 0.28);
         RA.fx.burst(it.x, it.y, {
           count: 16, colors: ['#f2705c', '#b83f3a', '#7c88a8'],
           speedMin: 40, speedMax: 130, lift: 30
@@ -230,7 +239,9 @@
               spawnT -= dt;
               if (spawnT <= 0 && items.length < 16) {
                 spawn(false);
-                spawnT = Math.max(0.34, 0.95 - Math.min(score, 90) * 0.006) + U.rand(-0.1, 0.14);
+                var gap = cfg.spawnBase - Math.min(score, cfg.rampCap) *
+                          ((cfg.spawnBase - cfg.spawnMin) / cfg.rampCap);
+                spawnT = Math.max(cfg.spawnMin, gap) + U.rand(-0.08, 0.12);
               }
             }
 
@@ -243,8 +254,8 @@
               it.rot += it.spin * dt;
               it.x = U.clamp(it.x, 8, RA.W - 8);
 
-              var caught = it.y > BASKET_Y - 10 && it.y < BASKET_Y + 16 &&
-                           Math.abs(it.x - basketX) < BASKET_HALF + 5;
+              var caught = it.y > BASKET_Y - 12 && it.y < BASKET_Y + 18 &&
+                           Math.abs(it.x - basketX) < BASKET_HALF + cfg.catchPad;
 
               if (caught) {
                 items.splice(i, 1);
@@ -337,7 +348,7 @@
           ctx.fillStyle = 'rgba(18,19,43,0.62)';
           ctx.fillRect(0, 0, RA.W, 27);
 
-          for (var l = 0; l < 3; l++) {
+          for (var l = 0; l < maxLives; l++) {
             RA.spr.draw(ctx, l < lives ? 'heart' : 'heart_empty', 6 + l * 11, 10, {});
           }
 

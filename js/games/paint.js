@@ -282,13 +282,15 @@
                            { color: C.sea, scale: 1, disabled: !undoStack.length })) undo();
 
           if (!confirmClear) {
-            if (RA.ui.button(ctx, RA.W - 188, 3, 36, 18, 'CLEAR',
+            if (RA.ui.button(ctx, RA.W - 192, 2, 40, 20, 'CLEAR',
                              { color: C.brick, scale: 1 })) confirmClear = true;
           } else {
-            if (RA.ui.button(ctx, RA.W - 188, 3, 18, 18, 'Y', { color: C.brick, scale: 1 })) {
+            /* These were 18x18 with no hit tolerance — about half the
+               size a small finger reliably lands on. */
+            if (RA.ui.button(ctx, RA.W - 192, 2, 32, 20, 'YES', { color: C.brick, scale: 1 })) {
               pushUndo(); clear(); confirmClear = false;
             }
-            if (RA.ui.button(ctx, RA.W - 168, 3, 18, 18, 'N', { color: C.grey2, scale: 1 })) {
+            if (RA.ui.button(ctx, RA.W - 156, 2, 32, 20, 'NO', { color: C.grey2, scale: 1 })) {
               confirmClear = false;
             }
           }

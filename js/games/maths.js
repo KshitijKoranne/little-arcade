@@ -12,12 +12,23 @@
   var U = RA.util;
   var C = RA.C;
 
-  var TOTAL = 10;
-  var MODES = [
-    { id: 'add10', name: 'ADDING TO 10',  color: '#3fae5c' },
-    { id: 'add20', name: 'ADDING TO 20',  color: '#f7a72b' },
-    { id: 'sub',   name: 'TAKING AWAY',   color: '#ef5b93' }
-  ];
+  /* Reception / Kindergarten works within 10; UK Year 1 and US Grade 1
+     both expect addition and subtraction within 20 at six, with fluency
+     only expected to 10. Year 3+ moves to two-digit work. */
+  var MODE_DEFS = {
+    add5:   { name: 'ADDING TO 5',    color: '#3fae5c' },
+    add10:  { name: 'ADDING TO 10',   color: '#3fae5c' },
+    add20:  { name: 'ADDING TO 20',   color: '#f7a72b' },
+    add100: { name: 'BIGGER ADDING',  color: '#2f7fd6' },
+    sub10:  { name: 'TAKING AWAY',    color: '#ef5b93' },
+    sub20:  { name: 'TAKING AWAY',    color: '#ef5b93' }
+  };
+
+  function modes() {
+    return RA.tune.get('maths').modes.map(function (id) {
+      return { id: id, name: MODE_DEFS[id].name, color: MODE_DEFS[id].color };
+    });
+  }
   var BUBBLE_COLORS = ['#ef5b93', '#7a4fd1', '#2f7fd6', '#3fae5c'];
 
   /* Crisp filled circle — no anti-aliasing, one fillRect per scanline. */
@@ -122,7 +133,8 @@
     scene: function () {
       var state = 'levels';    // levels | play | done
       var t = 0, stateT = 0;
-      var mode = MODES[0];
+      var mode = modes()[0];
+      var TOTAL = RA.tune.get('maths').questions;
       var qIndex = 0, correctFirst = 0, streak = 0, bestStreak = 0;
       var question = '', answer = 0, firstTry = true;
       var bubbles = [], busy = 0, cursor = 0;
@@ -133,16 +145,26 @@
 
       function makeQuestion() {
         var a, b;
-        if (mode.id === 'add10') {
-          a = U.randInt(1, 8); b = U.randInt(1, Math.max(1, 10 - a));
-          return { text: a + ' + ' + b, ans: a + b };
+        switch (mode.id) {
+          case 'add5':
+            a = U.randInt(1, 4); b = U.randInt(1, Math.max(1, 5 - a));
+            return { text: a + ' + ' + b, ans: a + b };
+          case 'add10':
+            a = U.randInt(1, 8); b = U.randInt(1, Math.max(1, 10 - a));
+            return { text: a + ' + ' + b, ans: a + b };
+          case 'add20':
+            a = U.randInt(2, 15); b = U.randInt(1, Math.max(1, 20 - a));
+            return { text: a + ' + ' + b, ans: a + b };
+          case 'add100':
+            a = U.randInt(10, 60); b = U.randInt(5, Math.max(5, 99 - a));
+            return { text: a + ' + ' + b, ans: a + b };
+          case 'sub10':
+            a = U.randInt(2, 10); b = U.randInt(1, a);
+            return { text: a + ' - ' + b, ans: a - b };
+          default:      /* sub20 */
+            a = U.randInt(3, 20); b = U.randInt(1, a);
+            return { text: a + ' - ' + b, ans: a - b };
         }
-        if (mode.id === 'add20') {
-          a = U.randInt(2, 15); b = U.randInt(1, Math.max(1, 20 - a));
-          return { text: a + ' + ' + b, ans: a + b };
-        }
-        a = U.randInt(3, 20); b = U.randInt(1, a);
-        return { text: a + ' - ' + b, ans: a - b };
       }
 
       function makeOptions(ans) {
@@ -232,6 +254,7 @@
 
       function start(m) {
         mode = m;
+        TOTAL = RA.tune.get('maths').questions;
         qIndex = 0; correctFirst = 0; streak = 0; bestStreak = 0;
         state = 'play'; stateT = 0;
         nextQuestion();
@@ -299,6 +322,7 @@
             RA.font.draw(ctx, 'POP THE RIGHT ANSWER', RA.W / 2, 66, {
               scale: 2, align: 'center', color: C.sky
             });
+            var MODES = modes();
             for (var i = 0; i < MODES.length; i++) {
               if (RA.ui.button(ctx, RA.W / 2 - 110, 92 + i * 40, 220, 32, MODES[i].name,
                                { color: MODES[i].color, scale: 2 })) start(MODES[i]);

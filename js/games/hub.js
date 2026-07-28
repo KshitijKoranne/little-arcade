@@ -136,9 +136,8 @@
         return;
       }
       RA.save.createProfile(clean);
-      RA.audio.sfx('unlock');
-      RA.fx.confetti(50);
-      RA.go('hub');
+      RA.audio.sfx('select');
+      RA.go('agepick');
     }
 
     return {
@@ -212,6 +211,75 @@
             RA.go('players');
           }
           if (RA.input.justPressed('back')) RA.go('players');
+        }
+        RA.ui.end();
+      }
+    };
+  });
+
+  /* ==================================================================
+     AGE BAND — how hard everything should be
+     A six-year-old and a nine-year-old are not the same player. This
+     scales fall speeds, board sizes, sums and platform spacing.
+     ================================================================== */
+  RA.registerScene('agepick', function () {
+    var t = 0;
+    var BW = 128, BH = 92, GAPX = 14;
+    var X0 = Math.round((RA.W - (BW * 3 + GAPX * 2)) / 2);
+    var Y0 = 96;
+    var TINT = ['#3fae5c', '#f7a72b', '#2f7fd6'];
+
+    return {
+      music: 'hub',
+      enter: function () { t = 0; },
+      update: function (dt) { t += dt; },
+
+      draw: function (ctx) {
+        RA.bg.sky(ctx, RA.bg.PALETTES.candy);
+        RA.bg.clouds(ctx, t * 0.5, { count: 3, speed: 4, top: 18, band: 50, alpha: 0.55 });
+
+        RA.ui.begin({ nav: false });
+
+        RA.font.draw(ctx, 'HOW OLD IS ' + (RA.save.activeName() || '') + '?', RA.W / 2, 26, {
+          scale: 3, align: 'center', color: C.ink, shadow: true, shadowColor: '#ffffff'
+        });
+        RA.font.draw(ctx, 'THIS SETS HOW TRICKY THE GAMES ARE', RA.W / 2, 58, {
+          scale: 1, align: 'center', color: C.ink
+        });
+        RA.font.draw(ctx, 'YOU CAN CHANGE IT LATER IN SETTINGS', RA.W / 2, 72, {
+          scale: 1, align: 'center', color: C.grey2
+        });
+
+        var bands = RA.tune.BANDS;
+        for (var i = 0; i < bands.length; i++) {
+          var x = X0 + i * (BW + GAPX);
+          var picked = RA.save.band() === i;
+          var bob = picked ? Math.sin(t * 5) * 2 : 0;
+
+          RA.ui.panel(ctx, x, Y0 - bob, BW, BH, {
+            fill: picked ? TINT[i] : C.ink2,
+            highlight: picked ? RA.ui.shade(TINT[i], 0.3) : C.ink3
+          });
+          RA.spr.drawC(ctx, 'girl_idle', x + BW / 2, Y0 + 26 - bob,
+                       { scale: 1 + i * 0.35 });
+          RA.font.draw(ctx, bands[i].name, x + BW / 2, Y0 + 46 - bob, {
+            scale: 2, align: 'center', color: C.white, shadow: true
+          });
+          RA.font.draw(ctx, bands[i].ages, x + BW / 2, Y0 + 66 - bob, {
+            scale: 2, align: 'center', color: picked ? C.cream : C.mist
+          });
+
+          if (RA.input.tapped(x, Y0 - 6, BW, BH + 12)) {
+            RA.save.setBand(i);
+            RA.audio.sfx('select');
+          }
+        }
+
+        if (RA.ui.button(ctx, RA.W / 2 - 70, 210, 140, 32, 'LET\'S PLAY!',
+                         { color: C.green, scale: 2 })) {
+          RA.audio.sfx('unlock');
+          RA.fx.confetti(50);
+          RA.go('hub');
         }
         RA.ui.end();
       }
@@ -608,7 +676,7 @@
         if (RA.ui.header(ctx, 'SETTINGS')) RA.go('hub');
 
         var s = RA.save.data.settings;
-        var bw = 260, bh = 28, x = (RA.W - bw) / 2, y = 34;
+        var bw = 260, bh = 26, x = (RA.W - bw) / 2, y = 28;
 
         if (RA.ui.button(ctx, x, y, bw, bh, 'MUSIC   ' + (s.music ? 'ON' : 'OFF'),
                          { color: s.music ? C.green : C.grey2, scale: 2, icon: 'note' })) {
@@ -624,22 +692,28 @@
         }
         y += bh + 7;
 
-        if (RA.ui.button(ctx, x, y, bw, bh, 'CRT GLOW   ' + (s.crt ? 'ON' : 'OFF'),
-                         { color: s.crt ? C.sea : C.grey2, scale: 2 })) {
-          RA.save.setSetting('crt', !s.crt);
+        if (RA.ui.button(ctx, x, y, bw, bh, 'SHAKE   ' + (s.shake !== false ? 'ON' : 'OFF'),
+                         { color: s.shake !== false ? C.sea : C.grey2, scale: 2 })) {
+          RA.save.setSetting('shake', s.shake === false);
         }
         y += bh + 7;
 
-        if (RA.ui.button(ctx, x, y, bw, bh, 'FULL SCREEN', { color: C.grape, scale: 2 })) {
+        var bi = RA.tune.BANDS[RA.save.band()];
+        if (RA.ui.button(ctx, x, y, bw, bh, 'AGE  ' + bi.name + '  ' + bi.ages,
+                         { color: C.amber, scale: 2 })) {
+          RA.go('agepick');
+        }
+        y += bh + 7;
+
+        if (RA.ui.button(ctx, x, y, bw / 2 - 4, bh, 'FULL SCREEN',
+                         { color: C.grape, scale: 1 })) {
           toggleFullscreen();
         }
-        y += bh + 7;
-
-        if (RA.ui.button(ctx, x, y, bw, bh, 'SWITCH PLAYER',
-                         { color: C.pinkDk, scale: 2, icon: 'girl_idle' })) {
+        if (RA.ui.button(ctx, x + bw / 2 + 4, y, bw / 2 - 4, bh, 'SWITCH PLAYER',
+                         { color: C.pinkDk, scale: 1 })) {
           RA.go('players');
         }
-        y += bh + 12;
+        y += bh + 10;
 
         var who = RA.save.activeName() || '';
         if (!confirming) {
