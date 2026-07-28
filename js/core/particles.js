@@ -125,7 +125,12 @@
   /* ---------------------------------------------------- screen shake */
   var shakeAmt = 0, shakeT = 0, shakeDur = 0;
   FX.shake = function (amount, duration) {
-    shakeAmt = Math.max(shakeAmt, amount);
+    /* Children sit at the peak of motion-sickness susceptibility, so the
+       youngest band gets this softened and Settings can switch it off. */
+    var s = RA.save && RA.save.data && RA.save.data.settings;
+    if (s && s.shake === false) return;
+    var scale = RA.tune ? RA.tune.shakeScale() : 1;
+    shakeAmt = Math.max(shakeAmt, amount * scale);
     shakeDur = Math.max(shakeDur, duration || 0.3);
     shakeT = shakeDur;
   };

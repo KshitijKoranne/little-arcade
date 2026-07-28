@@ -42,6 +42,7 @@
   function blankProfile(name) {
     return {
       name: name,
+      band: 1,              // 0 = ages 4-5, 1 = 6-7, 2 = 8-10
       stars: 0,
       totalStars: 0,
       stickers: {},
@@ -53,7 +54,7 @@
   }
 
   function defaultSettings() {
-    return { music: true, sfx: true, crt: true };
+    return { music: true, sfx: true, crt: true, shake: true };
   }
 
   /* -------------------------------------------------------------- load */
@@ -90,6 +91,7 @@
       d.music = s.music !== false;
       d.sfx = s.sfx !== false;
       d.crt = s.crt !== false;
+      d.shake = s.shake !== false;
     }
     return d;
   }
@@ -97,6 +99,7 @@
   function sanitise(name, p) {
     var b = blankProfile(name);
     if (p && typeof p === 'object') {
+      if (typeof p.band === 'number') b.band = Math.max(0, Math.min(2, p.band | 0));
       if (typeof p.stars === 'number') b.stars = p.stars;
       if (typeof p.totalStars === 'number') b.totalStars = p.totalStars;
       if (p.stickers && typeof p.stickers === 'object') b.stickers = p.stickers;
@@ -125,11 +128,23 @@
          can crash before the player picker has run. */
       Save.data = blankProfile('');
       Save.data.settings = root.settings;
-      return;
+    } else {
+      Save.data = root.profiles[root.active];
+      Save.data.settings = root.settings;
     }
-    Save.data = root.profiles[root.active];
-    Save.data.settings = root.settings;
+    /* Difficulty follows whoever is playing. */
+    if (RA.tune) RA.tune.syncFromProfile();
   }
+
+  /** Which age band this child plays at. */
+  Save.setBand = function (b) {
+    Save.data.band = Math.max(0, Math.min(2, b | 0));
+    if (RA.tune) RA.tune.syncFromProfile();
+    flush();
+  };
+  Save.band = function () {
+    return typeof Save.data.band === 'number' ? Save.data.band : 1;
+  };
 
   function flush() {
     var out = { v: 2, active: root.active, settings: root.settings, profiles: {} };
@@ -137,7 +152,7 @@
       if (!Object.prototype.hasOwnProperty.call(root.profiles, k)) continue;
       var p = root.profiles[k];
       out.profiles[k] = {
-        name: p.name, stars: p.stars, totalStars: p.totalStars,
+        name: p.name, band: p.band, stars: p.stars, totalStars: p.totalStars,
         stickers: p.stickers, best: p.best, played: p.played,
         created: p.created, lastPlayed: p.lastPlayed
       };
