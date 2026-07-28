@@ -408,6 +408,147 @@ body.flat #glare { display: none; }
 
 </script>
 <script>
+/* ===== js/core/tune.js ===== */
+/* =====================================================================
+   core/tune.js — age-banded difficulty.
+
+   Every number in here is tied to a developmental finding rather than a
+   feel. The bands are:
+
+     0  LITTLE   ages 4-5
+     1  MIDDLE   ages 6-7      <- default
+     2  BIG      ages 8-10
+
+   The evidence behind the key numbers:
+
+   * Choice reaction time (pick 1 of 4) is ~500-600ms in adults
+     (Der & Deary 2006) and roughly double that at age 6; Kail's (1991)
+     exponential model says most of the improvement happens between 4
+     and 8. So a 6-year-old needs on the order of a full second to
+     decide, plus motor time on top.
+   * From that, a falling object should take at least ~3.0s to cross the
+     screen at 4-5, ~2.0-2.5s at 6-7 and ~1.2-1.5s at 8-10. On a 270px
+     screen that caps fall speed at roughly 90 / 135 / 200 px per second.
+   * Visual working memory is about 3.5 items at age 7 rising to ~5.7 in
+     adults (Cowan 2005), and remembering an item *and* its place is
+     harder than either alone (Sander et al.). That puts a fair
+     memory-match board at 3-4 pairs / 6-8 pairs / 8-12 pairs.
+   * Arithmetic: UK Year 1 and US Grade 1 both expect addition and
+     subtraction within 20 at age 6, with fluency only expected to 10.
+     Reception/Kindergarten is within 10.
+   * Touch targets for small fingers want to be roughly double the adult
+     minimum; performance measurably degrades below ~18mm even at 6
+     (Nielsen Norman Group; Woodward et al. 2017).
+
+   Where the research was thin the agents said so, and I have leaned
+   conservative rather than inventing precision.
+   ===================================================================== */
+(function () {
+  'use strict';
+
+  var RA = window.RA;
+
+  var BANDS = [
+    { id: 0, key: 'little', name: 'LITTLE', ages: '4 - 5' },
+    { id: 1, key: 'middle', name: 'MIDDLE', ages: '6 - 7' },
+    { id: 2, key: 'big',    name: 'BIG',    ages: '8 - 10' }
+  ];
+
+  var TABLE = {
+
+    /* ---------------------------------------------------------- ORCHARD
+       fallMax is the hard ceiling in px/sec. 270px / fallMax = seconds to
+       cross, which is the reaction budget the child actually gets.       */
+    catch: [
+      { fallBase: 58, fallRamp: 0.36, fallMax: 92,                 // 2.9s to cross
+        spawnBase: 1.20, spawnMin: 0.62, hazardPct: 0.07, goldPct: 0.06,
+        catchPad: 11, lives: 5, rampCap: 90 },
+      { fallBase: 74, fallRamp: 0.62, fallMax: 134,                // 2.0s to cross
+        spawnBase: 1.02, spawnMin: 0.50, hazardPct: 0.12, goldPct: 0.05,
+        catchPad: 8, lives: 4, rampCap: 90 },
+      { fallBase: 88, fallRamp: 1.15, fallMax: 198,                // 1.36s to cross
+        spawnBase: 0.92, spawnMin: 0.36, hazardPct: 0.17, goldPct: 0.045,
+        catchPad: 5, lives: 3, rampCap: 90 }
+    ],
+
+    /* ------------------------------------------------------------ MATCH
+       pairs per level, and how long the opening peek lasts.              */
+    memory: [
+      { pairs: [2, 3, 4],  peek: [2.4, 3.0, 3.4], minCard: 52 },
+      { pairs: [3, 6, 8],  peek: [1.8, 2.3, 2.8], minCard: 42 },
+      { pairs: [6, 8, 12], peek: [1.4, 1.8, 2.2], minCard: 34 }
+    ],
+
+    /* ---------------------------------------------------------- BUBBLES */
+    maths: [
+      { modes: ['add5', 'add10', 'sub10'],  questions: 8 },
+      { modes: ['add10', 'add20', 'sub20'], questions: 10 },
+      { modes: ['add20', 'sub20', 'add100'], questions: 10 }
+    ],
+
+    /* ---------------------------------------------------------- SKY HOP
+       reachMax is the big one. One bounce lasts 0.88s and she accelerates
+       to 215px/s, so she can cover ~165px horizontally IF she starts
+       moving instantly at full tilt. The old build asked for up to 127px,
+       which needs near-perfect play - a frame-perfect bot still died in
+       9-13 seconds. These values ask for far less.                        */
+    hopper: [
+      { camAnchor: 0.34, gapMin: 28, gapMax: 36, gapGrow: 0,
+        reachBase: 46, reachGrow: 0,  platMin: 62, platMax: 82, springPct: 0.16,
+        maxVX: 128, moveAcc: 620, safetyEvery: 4, safetyW: 150, rescues: 3 },
+      { camAnchor: 0.38, gapMin: 30, gapMax: 38, gapGrow: 6,
+        reachBase: 52, reachGrow: 10, platMin: 56, platMax: 80, springPct: 0.12,
+        maxVX: 150, moveAcc: 760, safetyEvery: 5, safetyW: 120, rescues: 2 },
+      { camAnchor: 0.42, gapMin: 34, gapMax: 44, gapGrow: 12,
+        reachBase: 70, reachGrow: 24, platMin: 46, platMax: 66, springPct: 0.10,
+        maxVX: 192, moveAcc: 900, safetyEvery: 9, safetyW: 100, rescues: 1 }
+    ],
+
+    /* -------------------------------------------------------- STAR MAZE
+       cellCap keeps the tile size legible; the old build shrank tiles to
+       15px by level 12 and asked for ~32s of pure walking.               */
+    maze: [
+      { cwMax: 7,  chMax: 3, starBase: 2, starGrow: 3, beeFrom: 99 },
+      { cwMax: 10, chMax: 5, starBase: 2, starGrow: 2, beeFrom: 3 },
+      { cwMax: 14, chMax: 6, starBase: 3, starGrow: 2, beeFrom: 2 }
+    ],
+
+    /* Screen shake scale. Children sit at the peak of motion-sickness
+       susceptibility, so the youngest band gets it softened. Settings has
+       an outright off switch too.                                        */
+    shake: [0.45, 0.7, 1.0]
+  };
+
+  var Tune = RA.tune = {};
+
+  Tune.BANDS = BANDS;
+  Tune.band = 1;
+
+  Tune.setBand = function (b) {
+    Tune.band = RA.util.clamp(b | 0, 0, BANDS.length - 1);
+  };
+
+  Tune.bandInfo = function () { return BANDS[Tune.band]; };
+
+  /** Per-game settings for the band currently playing. */
+  Tune.get = function (game) {
+    var row = TABLE[game];
+    if (!row) return {};
+    return row[Tune.band] || row[1];
+  };
+
+  Tune.shakeScale = function () { return TABLE.shake[Tune.band]; };
+
+  /* Applied by save.js whenever the active profile changes. */
+  Tune.syncFromProfile = function () {
+    var d = RA.save && RA.save.data;
+    Tune.setBand(d && typeof d.band === 'number' ? d.band : 1);
+  };
+
+})();
+
+</script>
+<script>
 /* ===== js/core/font.js ===== */
 /* =====================================================================
    core/font.js — hand-drawn 5x7 bitmap font.
@@ -2476,7 +2617,12 @@ body.flat #glare { display: none; }
   /* ---------------------------------------------------- screen shake */
   var shakeAmt = 0, shakeT = 0, shakeDur = 0;
   FX.shake = function (amount, duration) {
-    shakeAmt = Math.max(shakeAmt, amount);
+    /* Children sit at the peak of motion-sickness susceptibility, so the
+       youngest band gets this softened and Settings can switch it off. */
+    var s = RA.save && RA.save.data && RA.save.data.settings;
+    if (s && s.shake === false) return;
+    var scale = RA.tune ? RA.tune.shakeScale() : 1;
+    shakeAmt = Math.max(shakeAmt, amount * scale);
     shakeDur = Math.max(shakeDur, duration || 0.3);
     shakeT = shakeDur;
   };
@@ -2616,6 +2762,7 @@ body.flat #glare { display: none; }
   function blankProfile(name) {
     return {
       name: name,
+      band: 1,              // 0 = ages 4-5, 1 = 6-7, 2 = 8-10
       stars: 0,
       totalStars: 0,
       stickers: {},
@@ -2627,7 +2774,7 @@ body.flat #glare { display: none; }
   }
 
   function defaultSettings() {
-    return { music: true, sfx: true, crt: true };
+    return { music: true, sfx: true, crt: true, shake: true };
   }
 
   /* -------------------------------------------------------------- load */
@@ -2664,6 +2811,7 @@ body.flat #glare { display: none; }
       d.music = s.music !== false;
       d.sfx = s.sfx !== false;
       d.crt = s.crt !== false;
+      d.shake = s.shake !== false;
     }
     return d;
   }
@@ -2671,6 +2819,7 @@ body.flat #glare { display: none; }
   function sanitise(name, p) {
     var b = blankProfile(name);
     if (p && typeof p === 'object') {
+      if (typeof p.band === 'number') b.band = Math.max(0, Math.min(2, p.band | 0));
       if (typeof p.stars === 'number') b.stars = p.stars;
       if (typeof p.totalStars === 'number') b.totalStars = p.totalStars;
       if (p.stickers && typeof p.stickers === 'object') b.stickers = p.stickers;
@@ -2699,11 +2848,23 @@ body.flat #glare { display: none; }
          can crash before the player picker has run. */
       Save.data = blankProfile('');
       Save.data.settings = root.settings;
-      return;
+    } else {
+      Save.data = root.profiles[root.active];
+      Save.data.settings = root.settings;
     }
-    Save.data = root.profiles[root.active];
-    Save.data.settings = root.settings;
+    /* Difficulty follows whoever is playing. */
+    if (RA.tune) RA.tune.syncFromProfile();
   }
+
+  /** Which age band this child plays at. */
+  Save.setBand = function (b) {
+    Save.data.band = Math.max(0, Math.min(2, b | 0));
+    if (RA.tune) RA.tune.syncFromProfile();
+    flush();
+  };
+  Save.band = function () {
+    return typeof Save.data.band === 'number' ? Save.data.band : 1;
+  };
 
   function flush() {
     var out = { v: 2, active: root.active, settings: root.settings, profiles: {} };
@@ -2711,7 +2872,7 @@ body.flat #glare { display: none; }
       if (!Object.prototype.hasOwnProperty.call(root.profiles, k)) continue;
       var p = root.profiles[k];
       out.profiles[k] = {
-        name: p.name, stars: p.stars, totalStars: p.totalStars,
+        name: p.name, band: p.band, stars: p.stars, totalStars: p.totalStars,
         stickers: p.stickers, best: p.best, played: p.played,
         created: p.created, lastPlayed: p.lastPlayed
       };
@@ -3648,9 +3809,8 @@ body.flat #glare { display: none; }
         return;
       }
       RA.save.createProfile(clean);
-      RA.audio.sfx('unlock');
-      RA.fx.confetti(50);
-      RA.go('hub');
+      RA.audio.sfx('select');
+      RA.go('agepick');
     }
 
     return {
@@ -3724,6 +3884,75 @@ body.flat #glare { display: none; }
             RA.go('players');
           }
           if (RA.input.justPressed('back')) RA.go('players');
+        }
+        RA.ui.end();
+      }
+    };
+  });
+
+  /* ==================================================================
+     AGE BAND — how hard everything should be
+     A six-year-old and a nine-year-old are not the same player. This
+     scales fall speeds, board sizes, sums and platform spacing.
+     ================================================================== */
+  RA.registerScene('agepick', function () {
+    var t = 0;
+    var BW = 128, BH = 92, GAPX = 14;
+    var X0 = Math.round((RA.W - (BW * 3 + GAPX * 2)) / 2);
+    var Y0 = 96;
+    var TINT = ['#3fae5c', '#f7a72b', '#2f7fd6'];
+
+    return {
+      music: 'hub',
+      enter: function () { t = 0; },
+      update: function (dt) { t += dt; },
+
+      draw: function (ctx) {
+        RA.bg.sky(ctx, RA.bg.PALETTES.candy);
+        RA.bg.clouds(ctx, t * 0.5, { count: 3, speed: 4, top: 18, band: 50, alpha: 0.55 });
+
+        RA.ui.begin({ nav: false });
+
+        RA.font.draw(ctx, 'HOW OLD IS ' + (RA.save.activeName() || '') + '?', RA.W / 2, 26, {
+          scale: 3, align: 'center', color: C.ink, shadow: true, shadowColor: '#ffffff'
+        });
+        RA.font.draw(ctx, 'THIS SETS HOW TRICKY THE GAMES ARE', RA.W / 2, 58, {
+          scale: 1, align: 'center', color: C.ink
+        });
+        RA.font.draw(ctx, 'YOU CAN CHANGE IT LATER IN SETTINGS', RA.W / 2, 72, {
+          scale: 1, align: 'center', color: C.grey2
+        });
+
+        var bands = RA.tune.BANDS;
+        for (var i = 0; i < bands.length; i++) {
+          var x = X0 + i * (BW + GAPX);
+          var picked = RA.save.band() === i;
+          var bob = picked ? Math.sin(t * 5) * 2 : 0;
+
+          RA.ui.panel(ctx, x, Y0 - bob, BW, BH, {
+            fill: picked ? TINT[i] : C.ink2,
+            highlight: picked ? RA.ui.shade(TINT[i], 0.3) : C.ink3
+          });
+          RA.spr.drawC(ctx, 'girl_idle', x + BW / 2, Y0 + 26 - bob,
+                       { scale: 1 + i * 0.35 });
+          RA.font.draw(ctx, bands[i].name, x + BW / 2, Y0 + 46 - bob, {
+            scale: 2, align: 'center', color: C.white, shadow: true
+          });
+          RA.font.draw(ctx, bands[i].ages, x + BW / 2, Y0 + 66 - bob, {
+            scale: 2, align: 'center', color: picked ? C.cream : C.mist
+          });
+
+          if (RA.input.tapped(x, Y0 - 6, BW, BH + 12)) {
+            RA.save.setBand(i);
+            RA.audio.sfx('select');
+          }
+        }
+
+        if (RA.ui.button(ctx, RA.W / 2 - 70, 210, 140, 32, 'LET\'S PLAY!',
+                         { color: C.green, scale: 2 })) {
+          RA.audio.sfx('unlock');
+          RA.fx.confetti(50);
+          RA.go('hub');
         }
         RA.ui.end();
       }
@@ -4120,7 +4349,7 @@ body.flat #glare { display: none; }
         if (RA.ui.header(ctx, 'SETTINGS')) RA.go('hub');
 
         var s = RA.save.data.settings;
-        var bw = 260, bh = 28, x = (RA.W - bw) / 2, y = 34;
+        var bw = 260, bh = 26, x = (RA.W - bw) / 2, y = 28;
 
         if (RA.ui.button(ctx, x, y, bw, bh, 'MUSIC   ' + (s.music ? 'ON' : 'OFF'),
                          { color: s.music ? C.green : C.grey2, scale: 2, icon: 'note' })) {
@@ -4136,22 +4365,28 @@ body.flat #glare { display: none; }
         }
         y += bh + 7;
 
-        if (RA.ui.button(ctx, x, y, bw, bh, 'CRT GLOW   ' + (s.crt ? 'ON' : 'OFF'),
-                         { color: s.crt ? C.sea : C.grey2, scale: 2 })) {
-          RA.save.setSetting('crt', !s.crt);
+        if (RA.ui.button(ctx, x, y, bw, bh, 'SHAKE   ' + (s.shake !== false ? 'ON' : 'OFF'),
+                         { color: s.shake !== false ? C.sea : C.grey2, scale: 2 })) {
+          RA.save.setSetting('shake', s.shake === false);
         }
         y += bh + 7;
 
-        if (RA.ui.button(ctx, x, y, bw, bh, 'FULL SCREEN', { color: C.grape, scale: 2 })) {
+        var bi = RA.tune.BANDS[RA.save.band()];
+        if (RA.ui.button(ctx, x, y, bw, bh, 'AGE  ' + bi.name + '  ' + bi.ages,
+                         { color: C.amber, scale: 2 })) {
+          RA.go('agepick');
+        }
+        y += bh + 7;
+
+        if (RA.ui.button(ctx, x, y, bw / 2 - 4, bh, 'FULL SCREEN',
+                         { color: C.grape, scale: 1 })) {
           toggleFullscreen();
         }
-        y += bh + 7;
-
-        if (RA.ui.button(ctx, x, y, bw, bh, 'SWITCH PLAYER',
-                         { color: C.pinkDk, scale: 2, icon: 'girl_idle' })) {
+        if (RA.ui.button(ctx, x + bw / 2 + 4, y, bw / 2 - 4, bh, 'SWITCH PLAYER',
+                         { color: C.pinkDk, scale: 1 })) {
           RA.go('players');
         }
-        y += bh + 12;
+        y += bh + 10;
 
         var who = RA.save.activeName() || '';
         if (!confirming) {
@@ -4328,9 +4563,12 @@ body.flat #glare { display: none; }
       var nextRain = 30, rainQueue = 0, rainT = 0;
       var hurtFlash = 0;
       var resultStars = 0, starsEarned = 0, isRecord = false;
+      var cfg = RA.tune.get('catch'), maxLives = cfg.lives;
 
       function reset() {
-        score = 0; lives = 3; combo = 0; goldCount = 0;
+        cfg = RA.tune.get('catch');
+        maxLives = cfg.lives;
+        score = 0; lives = maxLives; combo = 0; goldCount = 0;
         items = []; spawnT = 0.4; wind = 0; windTarget = 0;
         nextRain = 30; rainQueue = 0;
         basketX = targetX = RA.W / 2; basketVX = 0;
@@ -4343,18 +4581,24 @@ body.flat #glare { display: none; }
         var r = Math.random();
         var kind = 'fruit';
         if (!force) {
-          if (r > 0.955) kind = 'gold';
-          else if (r > 0.80) kind = 'bad';
+          if (r > 1 - cfg.goldPct) kind = 'gold';
+          else if (r > 1 - cfg.goldPct - cfg.hazardPct) kind = 'bad';
         }
         var sprite = kind === 'fruit' ? U.pick(RA.FRUITS)
                    : kind === 'gold' ? 'star'
                    : U.pick(['haz_rock', 'haz_thorn']);
+
+        /* Hard ceiling on fall speed: 270px / fallMax is the reaction
+           budget the child gets, and it must never dip under it. */
+        var speed = cfg.fallBase + Math.min(score, cfg.rampCap) * cfg.fallRamp;
+        speed = Math.min(speed, cfg.fallMax) + U.rand(-8, 8);
+
         items.push({
           kind: kind,
           spr: sprite,
           x: U.rand(24, RA.W - 24),
           y: -12,
-          vy: 78 + Math.min(score, 90) * 1.25 + U.rand(-10, 16),
+          vy: speed,
           vx: 0,
           rot: U.rand(-0.4, 0.4),
           spin: U.rand(-2.2, 2.2),
@@ -4367,7 +4611,7 @@ body.flat #glare { display: none; }
         combo = 0;
         hurtFlash = 0.28;
         RA.audio.sfx('hurt');
-        RA.fx.shake(7, 0.35);
+        RA.fx.shake(4, 0.28);
         RA.fx.burst(it.x, it.y, {
           count: 16, colors: ['#f2705c', '#b83f3a', '#7c88a8'],
           speedMin: 40, speedMax: 130, lift: 30
@@ -4433,7 +4677,9 @@ body.flat #glare { display: none; }
               spawnT -= dt;
               if (spawnT <= 0 && items.length < 16) {
                 spawn(false);
-                spawnT = Math.max(0.34, 0.95 - Math.min(score, 90) * 0.006) + U.rand(-0.1, 0.14);
+                var gap = cfg.spawnBase - Math.min(score, cfg.rampCap) *
+                          ((cfg.spawnBase - cfg.spawnMin) / cfg.rampCap);
+                spawnT = Math.max(cfg.spawnMin, gap) + U.rand(-0.08, 0.12);
               }
             }
 
@@ -4446,8 +4692,8 @@ body.flat #glare { display: none; }
               it.rot += it.spin * dt;
               it.x = U.clamp(it.x, 8, RA.W - 8);
 
-              var caught = it.y > BASKET_Y - 10 && it.y < BASKET_Y + 16 &&
-                           Math.abs(it.x - basketX) < BASKET_HALF + 5;
+              var caught = it.y > BASKET_Y - 12 && it.y < BASKET_Y + 18 &&
+                           Math.abs(it.x - basketX) < BASKET_HALF + cfg.catchPad;
 
               if (caught) {
                 items.splice(i, 1);
@@ -4540,7 +4786,7 @@ body.flat #glare { display: none; }
           ctx.fillStyle = 'rgba(18,19,43,0.62)';
           ctx.fillRect(0, 0, RA.W, 27);
 
-          for (var l = 0; l < 3; l++) {
+          for (var l = 0; l < maxLives; l++) {
             RA.spr.draw(ctx, l < lives ? 'heart' : 'heart_empty', 6 + l * 11, 10, {});
           }
 
@@ -4659,11 +4905,25 @@ body.flat #glare { display: none; }
   var U = RA.util;
   var C = RA.C;
 
-  var LEVELS = [
-    { pairs: 3, cols: 3, rows: 2, name: 'EASY',   color: '#3fae5c', peek: 1.6 },
-    { pairs: 6, cols: 4, rows: 3, name: 'MEDIUM', color: '#f7a72b', peek: 2.0 },
-    { pairs: 8, cols: 4, rows: 4, name: 'HARD',   color: '#ef5b93', peek: 2.4 }
-  ];
+  var NAMES = ['EASY', 'MEDIUM', 'HARD'];
+  var COLORS = ['#3fae5c', '#f7a72b', '#ef5b93'];
+
+  /* Board sizes come from the age band. Visual working memory is about
+     3.5 items at seven rising to ~5.7 in adults, and remembering an item
+     AND where it was is harder than either alone — so the boards stay
+     below raw span. */
+  function levels() {
+    var cfg = RA.tune.get('memory');
+    return cfg.pairs.map(function (p, i) {
+      var cols = p <= 3 ? 3 : p <= 6 ? 4 : p <= 8 ? 4 : 6;
+      var rows = Math.ceil((p * 2) / cols);
+      return {
+        pairs: p, cols: cols, rows: rows,
+        name: NAMES[i], color: COLORS[i],
+        peek: cfg.peek[i], minCard: cfg.minCard
+      };
+    });
+  }
 
   /* Card back: a woven pixel pattern, drawn once per size and cached. */
   var backCache = {};
@@ -4721,12 +4981,15 @@ body.flat #glare { display: none; }
       var state = 'levels';   // levels | peek | play | won
       var t = 0, stateT = 0;
       var lvl = null, cards = [], cursor = 0;
+      var LEVELS = levels(), lvlIndex = 0;
       var first = null, lockT = 0, moves = 0, mistakes = 0, found = 0;
       var elapsed = 0;
       var score = 0, resultStars = 0, starsEarned = 0, isRecord = false;
       var layout = { x: 0, y: 0, cw: 0, ch: 0, gap: 0 };
 
       function build(levelIndex) {
+        LEVELS = levels();
+        lvlIndex = levelIndex;
         lvl = LEVELS[levelIndex];
         var chosen = U.shuffle(RA.ANIMALS).slice(0, lvl.pairs);
         var deck = U.shuffle(chosen.concat(chosen));
@@ -4738,6 +5001,9 @@ body.flat #glare { display: none; }
         var ch = Math.floor((boxH - gap * (lvl.rows - 1)) / lvl.rows);
         cw = Math.min(cw, Math.floor(ch * 0.78), 66);
         ch = Math.min(ch, Math.floor(cw / 0.78));
+        /* Small fingers need a target roughly double the adult minimum. */
+        cw = Math.max(cw, lvl.minCard);
+        ch = Math.max(ch, Math.round(lvl.minCard * 1.28));
         var gridW = cw * lvl.cols + gap * (lvl.cols - 1);
         var gridH = ch * lvl.rows + gap * (lvl.rows - 1);
         layout = {
@@ -4821,7 +5087,7 @@ body.flat #glare { display: none; }
       return {
         music: 'memory',
 
-        enter: function () { t = 0; stateT = 0; state = 'levels'; cards = []; },
+        enter: function () { t = 0; stateT = 0; state = 'levels'; cards = []; LEVELS = levels(); },
 
         update: function (dt) {
           t += dt; stateT += dt;
@@ -4995,7 +5261,7 @@ body.flat #glare { display: none; }
               record: isRecord,
               lines: ['TURNS ' + moves + '   TIME ' + Math.floor(elapsed) + 'S']
             });
-            if (r === 'again') build(LEVELS.indexOf(lvl));
+            if (r === 'again') build(lvlIndex);
             else if (r === 'home') { state = 'levels'; stateT = 0; }
           } else {
             if (RA.ui.button(ctx, 430, 3, 44, 20, '<',
@@ -5029,12 +5295,23 @@ body.flat #glare { display: none; }
   var U = RA.util;
   var C = RA.C;
 
-  var TOTAL = 10;
-  var MODES = [
-    { id: 'add10', name: 'ADDING TO 10',  color: '#3fae5c' },
-    { id: 'add20', name: 'ADDING TO 20',  color: '#f7a72b' },
-    { id: 'sub',   name: 'TAKING AWAY',   color: '#ef5b93' }
-  ];
+  /* Reception / Kindergarten works within 10; UK Year 1 and US Grade 1
+     both expect addition and subtraction within 20 at six, with fluency
+     only expected to 10. Year 3+ moves to two-digit work. */
+  var MODE_DEFS = {
+    add5:   { name: 'ADDING TO 5',    color: '#3fae5c' },
+    add10:  { name: 'ADDING TO 10',   color: '#3fae5c' },
+    add20:  { name: 'ADDING TO 20',   color: '#f7a72b' },
+    add100: { name: 'BIGGER ADDING',  color: '#2f7fd6' },
+    sub10:  { name: 'TAKING AWAY',    color: '#ef5b93' },
+    sub20:  { name: 'TAKING AWAY',    color: '#ef5b93' }
+  };
+
+  function modes() {
+    return RA.tune.get('maths').modes.map(function (id) {
+      return { id: id, name: MODE_DEFS[id].name, color: MODE_DEFS[id].color };
+    });
+  }
   var BUBBLE_COLORS = ['#ef5b93', '#7a4fd1', '#2f7fd6', '#3fae5c'];
 
   /* Crisp filled circle — no anti-aliasing, one fillRect per scanline. */
@@ -5139,7 +5416,8 @@ body.flat #glare { display: none; }
     scene: function () {
       var state = 'levels';    // levels | play | done
       var t = 0, stateT = 0;
-      var mode = MODES[0];
+      var mode = modes()[0];
+      var TOTAL = RA.tune.get('maths').questions;
       var qIndex = 0, correctFirst = 0, streak = 0, bestStreak = 0;
       var question = '', answer = 0, firstTry = true;
       var bubbles = [], busy = 0, cursor = 0;
@@ -5150,16 +5428,26 @@ body.flat #glare { display: none; }
 
       function makeQuestion() {
         var a, b;
-        if (mode.id === 'add10') {
-          a = U.randInt(1, 8); b = U.randInt(1, Math.max(1, 10 - a));
-          return { text: a + ' + ' + b, ans: a + b };
+        switch (mode.id) {
+          case 'add5':
+            a = U.randInt(1, 4); b = U.randInt(1, Math.max(1, 5 - a));
+            return { text: a + ' + ' + b, ans: a + b };
+          case 'add10':
+            a = U.randInt(1, 8); b = U.randInt(1, Math.max(1, 10 - a));
+            return { text: a + ' + ' + b, ans: a + b };
+          case 'add20':
+            a = U.randInt(2, 15); b = U.randInt(1, Math.max(1, 20 - a));
+            return { text: a + ' + ' + b, ans: a + b };
+          case 'add100':
+            a = U.randInt(10, 60); b = U.randInt(5, Math.max(5, 99 - a));
+            return { text: a + ' + ' + b, ans: a + b };
+          case 'sub10':
+            a = U.randInt(2, 10); b = U.randInt(1, a);
+            return { text: a + ' - ' + b, ans: a - b };
+          default:      /* sub20 */
+            a = U.randInt(3, 20); b = U.randInt(1, a);
+            return { text: a + ' - ' + b, ans: a - b };
         }
-        if (mode.id === 'add20') {
-          a = U.randInt(2, 15); b = U.randInt(1, Math.max(1, 20 - a));
-          return { text: a + ' + ' + b, ans: a + b };
-        }
-        a = U.randInt(3, 20); b = U.randInt(1, a);
-        return { text: a + ' - ' + b, ans: a - b };
       }
 
       function makeOptions(ans) {
@@ -5249,6 +5537,7 @@ body.flat #glare { display: none; }
 
       function start(m) {
         mode = m;
+        TOTAL = RA.tune.get('maths').questions;
         qIndex = 0; correctFirst = 0; streak = 0; bestStreak = 0;
         state = 'play'; stateT = 0;
         nextQuestion();
@@ -5316,6 +5605,7 @@ body.flat #glare { display: none; }
             RA.font.draw(ctx, 'POP THE RIGHT ANSWER', RA.W / 2, 66, {
               scale: 2, align: 'center', color: C.sky
             });
+            var MODES = modes();
             for (var i = 0; i < MODES.length; i++) {
               if (RA.ui.button(ctx, RA.W / 2 - 110, 92 + i * 40, 220, 32, MODES[i].name,
                                { color: MODES[i].color, scale: 2 })) start(MODES[i]);
@@ -5426,13 +5716,15 @@ body.flat #glare { display: none; }
   var GRAVITY = 980;
   var JUMP_V = -432;
   var SPRING_V = -720;
+  /* Overridden per age band. A young child steers bang-bang — hold left,
+     hold right — so a high top speed makes them overshoot the platform
+     rather than land on it. Slower is genuinely easier here. */
   var MOVE_ACC = 980;
   var MAX_VX = 215;
 
   /* How far down the screen the camera holds her. This must leave more
      than one full jump of headroom below her apex, or she can fall past
      the bottom of the screen onto a platform she was standing on. */
-  var CAM_ANCHOR = 0.44;
   var START_PLAT_Y = 40;
 
   /* Sky bands she climbs through. */
@@ -5499,12 +5791,18 @@ body.flat #glare { display: none; }
     scene: function () {
       var state = 'intro';    // intro | play | over
       var t = 0, stateT = 0;
+      var cfg = RA.tune.get('hopper');
+      var CAM_ANCHOR = cfg.camAnchor;
       var player, plats, pickups, camY, startY, maxUp, best;
       var score = 0, starsGot = 0, resultStars = 0, starsEarned = 0, isRecord = false;
       var topGen = 0, nextId = 0;
-      var puffT = 0;
+      var puffT = 0, rescues = 0, rescueT = 0;
 
       function reset() {
+        cfg = RA.tune.get('hopper');
+        CAM_ANCHOR = cfg.camAnchor;
+        MAX_VX = cfg.maxVX;
+        MOVE_ACC = cfg.moveAcc;
         /* She starts standing ON the first platform, not floating above
            it — otherwise her opening jump peaks higher than one jump's
            worth of headroom and she lands below the camera. */
@@ -5516,6 +5814,7 @@ body.flat #glare { display: none; }
         camY = player.y - RA.H * CAM_ANCHOR;
         maxUp = 0;
         score = 0; starsGot = 0;
+        rescues = cfg.rescues; rescueT = 0;
         plats = []; pickups = []; nextId = 0;
 
         /* a wide starter platform right under her */
@@ -5526,24 +5825,29 @@ body.flat #glare { display: none; }
 
       function generateRow() {
         var height = Math.max(0, Math.floor((startY - topGen) / 6));
-        /* Never wider than a single jump (~94px of rise), with margin.
-           The first stretch is deliberately gentle so a small child gets
-           a run going before it tightens up. */
+        /* One bounce lasts 0.88s and tops out at 215px/s, so she can only
+           cover ~165px sideways with perfect play. A frame-perfect bot
+           still died in 9-13s when this asked for up to 127px, so the
+           reach is now well inside what one comfortable bounce buys. */
         var warmUp = height < 60;
-        var gap = warmUp ? U.rand(34, 42)
-                         : U.rand(38, 48 + Math.min(20, height / 70));
+        var gap = warmUp ? U.rand(cfg.gapMin - 4, cfg.gapMin + 4)
+                         : U.rand(cfg.gapMin, cfg.gapMax + Math.min(cfg.gapGrow, height / 90));
         topGen -= gap;
 
-        var w = warmUp ? Math.round(U.rand(56, 72))
-                       : Math.round(U.rand(38, 58) - Math.min(12, height / 140));
+        var w = warmUp ? Math.round(U.rand(cfg.platMax - 6, cfg.platMax + 10))
+                       : Math.round(U.rand(cfg.platMin, cfg.platMax) -
+                                    Math.min(8, height / 220));
 
-        /* Place it within comfortable reach of the platform below rather
-           than anywhere on the row. One bounce gives roughly 170px of
-           horizontal travel, so a child should never need a perfect
-           full-speed run to make the next step. */
+        /* Every so often, a wide ledge she can hardly miss. It turns a
+           bad run into a pause rather than a fall. */
+        var isSafety = cfg.safetyEvery > 0 && (nextId % cfg.safetyEvery === 0);
+        if (isSafety) w = cfg.safetyW;
+
         var prev = plats.length ? plats[plats.length - 1] : null;
         var fromX = prev ? prev.x + prev.w / 2 : RA.W / 2;
-        var reach = warmUp ? 62 : 96 + Math.min(40, height / 16);
+        var reach = isSafety ? cfg.reachBase * 0.5
+                  : warmUp   ? cfg.reachBase * 0.7
+                             : cfg.reachBase + Math.min(cfg.reachGrow, height / 40);
         var cx = fromX + U.rand(-reach, reach);
         cx = U.clamp(cx, w / 2 + 6, RA.W - w / 2 - 6);
         var x = cx - w / 2;
@@ -5557,7 +5861,7 @@ body.flat #glare { display: none; }
           vx: kind === 'move' ? (Math.random() < 0.5 ? -1 : 1) * U.rand(22, 42) : 0,
           springT: 0
         };
-        if (Math.random() < 0.10 && height > 40) p.kind = 'spring';
+        if (Math.random() < cfg.springPct && height > 40) p.kind = 'spring';
         plats.push(p);
 
         if (Math.random() < 0.22) {
@@ -5579,7 +5883,8 @@ body.flat #glare { display: none; }
 
         debug: function () {
           return {
-            state: state, score: score, starsGot: starsGot, camY: Math.round(camY),
+            state: state, score: score, starsGot: starsGot, rescues: rescues,
+            camY: Math.round(camY),
             px: player && Math.round(player.x), py: player && Math.round(player.y),
             vy: player && Math.round(player.vy),
             vx: player && Math.round(player.vx),
@@ -5708,8 +6013,41 @@ body.flat #glare { display: none; }
             });
           }
 
-          /* ---- fall out ---- */
-          if (player.y - camY > RA.H + 30) die();
+          /* ---- fall out ----
+             The first falls are caught by a balloon rather than ending the
+             run. A child learns the controls from the recovery; ending it
+             at the first mistake teaches nothing and just stings.        */
+          if (player.y - camY > RA.H + 30) {
+            if (rescues > 0) {
+              rescues--;
+              /* find the highest platform that is still on screen */
+              var catcher = null;
+              for (var ri = 0; ri < plats.length; ri++) {
+                var rp = plats[ri];
+                var sy = rp.y - camY;
+                if (sy > 40 && sy < RA.H - 20 && (!catcher || rp.y > catcher.y)) catcher = rp;
+              }
+              if (catcher) {
+                player.x = catcher.x + catcher.w / 2;
+                player.y = catcher.y - player.h / 2 - 1;
+              } else {
+                player.x = RA.W / 2;
+                player.y = camY + RA.H * 0.5;
+              }
+              player.vx = 0;
+              player.vy = JUMP_V;
+              rescueT = 1.2;
+              RA.audio.sfx('powerup');
+              RA.fx.popText('SAVED!', player.x, player.y - camY - 22,
+                            { color: C.gold, scale: 3 });
+              RA.fx.burst(player.x, player.y - camY, {
+                count: 20, colors: ['#ff9ec4', '#ffd45c', '#ffffff'],
+                speedMin: 30, speedMax: 100
+              });
+            } else {
+              die();
+            }
+          }
 
           player.frame = player.vy < 0 ? 0 : 1;
         },
@@ -5775,6 +6113,11 @@ body.flat #glare { display: none; }
           });
           RA.spr.draw(ctx, 'star_small', RA.W / 2 - 20, 8, {});
           RA.font.draw(ctx, starsGot, RA.W / 2 - 8, 8, { scale: 2, color: C.gold });
+
+          /* balloons left = falls that will be caught */
+          for (var rb = 0; rb < rescues; rb++) {
+            RA.spr.draw(ctx, 'heart', RA.W / 2 + 26 + rb * 10, 8, {});
+          }
           RA.font.draw(ctx, 'BEST ' + Math.max(best, score) + 'M', RA.W - 8, 9, {
             scale: 1, align: 'right', color: C.mist
           });
@@ -5973,14 +6316,18 @@ body.flat #glare { display: none; }
       var t = 0, stateT = 0;
       var level = 1, maze = null, ts = 12, ox = 0, oy = 0;
       var player = null, stars = [], gate = null, bee = null;
-      var collected = 0, moves = 0, levelT = 0;
+      var collected = 0, moves = 0, levelT = 0, graceT = 0;
       var resultStars = 0, starsEarned = 0, isRecord = false;
       var held = { x: 0, y: 0 };
 
       function buildLevel(n) {
         level = n;
-        var cw = U.clamp(6 + Math.floor(n / 2), 6, 15);
-        var ch = U.clamp(3 + Math.floor(n / 3), 3, 7);
+        /* Capped so the tiles stay legible and a level never turns into a
+           two-minute walk; the old build shrank to 15px tiles by level 12
+           and asked for ~32s of pure movement. */
+        var mcfg = RA.tune.get('maze');
+        var cw = U.clamp(6 + Math.floor(n / 2), 6, mcfg.cwMax);
+        var ch = U.clamp(3 + Math.floor(n / 3), 3, mcfg.chMax);
         maze = generate(cw, ch, U.rng(1337 + n * 7919 + Math.floor(Math.random() * 1000)));
 
         var availW = RA.W - 16, availH = RA.H - TOP - 12;
@@ -5995,7 +6342,8 @@ body.flat #glare { display: none; }
         });
         cells = U.shuffle(cells);
 
-        var starCount = Math.min(cells.length - 1, 2 + Math.floor(n / 2) + 1);
+        var starCount = Math.min(cells.length - 1,
+                                 mcfg.starBase + Math.floor(n / mcfg.starGrow));
         stars = cells.slice(0, starCount).map(function (c) {
           return { cx: c.x, cy: c.y, taken: false, ph: Math.random() * 6 };
         });
@@ -6007,10 +6355,15 @@ body.flat #glare { display: none; }
         }
         gate = { cx: far.x, cy: far.y, open: false, t: 0 };
 
+        /* The bee only shows up once she has the hang of it, and it always
+           starts as far from her as the maze allows. */
         bee = null;
-        if (n >= 2) {
-          var bc = cells[Math.floor(cells.length / 2)];
-          bee = { x: bc.x, y: bc.y, tx: bc.x, ty: bc.y, moving: false, dir: 0, cool: 0 };
+        graceT = 0;
+        if (n >= mcfg.beeFrom) {
+          var bc = farthestCellFrom(1, 1);
+          if (bc.d >= 4) {
+            bee = { x: bc.x, y: bc.y, tx: bc.x, ty: bc.y, moving: false, cool: 0, doze: 0 };
+          }
         }
 
         collected = 0; moves = 0; levelT = 0;
@@ -6018,6 +6371,42 @@ body.flat #glare { display: none; }
 
       function walkable(cx, cy) {
         return cx >= 0 && cy >= 0 && cx < maze.W && cy < maze.H && maze.grid[cy][cx] === 0;
+      }
+
+      /* Breadth-first distances from a cell, in steps through the maze —
+         straight-line distance is meaningless with walls in the way. */
+      function distancesFrom(sx, sy) {
+        var dist = [];
+        for (var y = 0; y < maze.H; y++) {
+          dist[y] = [];
+          for (var x = 0; x < maze.W; x++) dist[y][x] = -1;
+        }
+        if (!walkable(sx, sy)) return dist;
+        dist[sy][sx] = 0;
+        var queue = [[sx, sy]], head = 0;
+        var D = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+        while (head < queue.length) {
+          var c = queue[head++];
+          for (var d = 0; d < 4; d++) {
+            var nx = c[0] + D[d][0], ny = c[1] + D[d][1];
+            if (!walkable(nx, ny) || dist[ny][nx] !== -1) continue;
+            dist[ny][nx] = dist[c[1]][c[0]] + 1;
+            queue.push([nx, ny]);
+          }
+        }
+        return dist;
+      }
+
+      /** The reachable cell furthest (in steps) from cx,cy. */
+      function farthestCellFrom(cx, cy) {
+        var dist = distancesFrom(cx, cy);
+        var best = null, bestD = -1;
+        for (var y = 1; y < maze.H - 1; y++) {
+          for (var x = 1; x < maze.W - 1; x++) {
+            if (dist[y][x] > bestD) { bestD = dist[y][x]; best = { x: x, y: y, d: bestD }; }
+          }
+        }
+        return best || { x: 1, y: 1, d: 0 };
       }
 
       function tryMove(dx, dy) {
@@ -6063,7 +6452,9 @@ body.flat #glare { display: none; }
             ox: ox, oy: oy, ts: ts, W: maze && maze.W, H: maze && maze.H,
             grid: maze && maze.grid,
             starPos: stars.map(function (s) { return [s.cx, s.cy, s.taken]; }),
-            gatePos: gate && [gate.cx, gate.cy]
+            gatePos: gate && [gate.cx, gate.cy],
+            graceT: +graceT.toFixed(2),
+            bee: bee ? { x: +bee.x.toFixed(2), y: +bee.y.toFixed(2), doze: +bee.doze.toFixed(2) } : null
           };
         },
 
@@ -6130,47 +6521,91 @@ body.flat #glare { display: none; }
             if (player.cx === gate.cx && player.cy === gate.cy) finishLevel();
           }
 
-          /* ---- bee ---- */
+          /* ---- bee ----
+             Rules that keep this fair for a small child:
+               - it can never step onto the cell she is standing on, so it
+                 cannot corner her in a dead end
+               - after a bump she gets a long grace period and the bee dozes
+               - she is never teleported; being yanked back to the start of a
+                 maze is a miserable punishment at this age
+               - the bee retreats to the furthest reachable cell, measured in
+                 steps through the maze, not straight-line distance          */
+          if (graceT > 0) graceT = Math.max(0, graceT - dt);
+
           if (bee) {
-            if (bee.moving) {
-              var bs = 2.6 * dt;
+            if (bee.doze > 0) {
+              bee.doze = Math.max(0, bee.doze - dt);
+            } else if (bee.moving) {
+              var bs = 2.3 * dt;
               bee.x = U.approach(bee.x, bee.tx, bs);
               bee.y = U.approach(bee.y, bee.ty, bs);
               if (bee.x === bee.tx && bee.y === bee.ty) bee.moving = false;
             } else {
               bee.cool -= dt;
               if (bee.cool <= 0) {
-                bee.cool = U.rand(0.15, 0.5);
+                bee.cool = U.rand(0.25, 0.6);
                 var opts = [];
                 var D = [[1, 0], [-1, 0], [0, 1], [0, -1]];
                 for (var d = 0; d < 4; d++) {
                   var nx2 = Math.round(bee.x) + D[d][0], ny2 = Math.round(bee.y) + D[d][1];
-                  if (walkable(nx2, ny2)) opts.push([nx2, ny2]);
+                  if (!walkable(nx2, ny2)) continue;
+                  if (nx2 === player.cx && ny2 === player.cy) continue;   // never land on her
+                  opts.push([nx2, ny2]);
                 }
                 if (opts.length) {
-                  var o = U.pick(opts);
-                  bee.tx = o[0]; bee.ty = o[1]; bee.moving = true;
+                  /* Shy: if she is close, prefer whichever way opens the gap.
+                     Otherwise it would be able to park in a corridor she has
+                     to walk through and tax her every single time. */
+                  var pd = distancesFrom(player.cx, player.cy);
+                  var here = pd[Math.round(bee.y)] ? pd[Math.round(bee.y)][Math.round(bee.x)] : 99;
+                  if (here >= 0 && here <= 2) {
+                    var bestOpt = opts[0], bestD = -1;
+                    for (var oi = 0; oi < opts.length; oi++) {
+                      var od = pd[opts[oi][1]][opts[oi][0]];
+                      if (od > bestD) { bestD = od; bestOpt = opts[oi]; }
+                    }
+                    bee.tx = bestOpt[0]; bee.ty = bestOpt[1];
+                  } else {
+                    var o = U.pick(opts);
+                    bee.tx = o[0]; bee.ty = o[1];
+                  }
+                  bee.moving = true;
                 }
               }
             }
-            if (Math.abs(bee.x - player.x) < 0.6 && Math.abs(bee.y - player.y) < 0.6) {
+
+            var touching = Math.abs(bee.x - player.x) < 0.6 &&
+                           Math.abs(bee.y - player.y) < 0.6;
+
+            if (touching && graceT <= 0 && bee.doze <= 0) {
+              graceT = 2.6;
+              bee.doze = 2.6;
+
               if (collected > 0) {
                 collected--;
                 gate.open = false;
                 for (var q = stars.length - 1; q >= 0; q--) {
                   if (stars[q].taken) { stars[q].taken = false; break; }
                 }
-                RA.fx.popText('OH NO!', ox + player.x * ts + ts / 2, oy + player.y * ts - 6,
-                              { color: C.coral, scale: 2 });
+                RA.fx.popText('OOPS! LOST A STAR', ox + player.x * ts + ts / 2,
+                              oy + player.y * ts - 8, { color: C.coral, scale: 2 });
+              } else {
+                RA.fx.popText('BUZZ OFF!', ox + player.x * ts + ts / 2,
+                              oy + player.y * ts - 8, { color: C.gold, scale: 2 });
               }
+
               RA.audio.sfx('wrong');
-              RA.fx.shake(4, 0.25);
-              /* nudge her back to the start of the corridor */
-              player.cx = player.tx = 1; player.cy = player.ty = 1;
-              player.x = 1; player.y = 1; player.moving = false;
-              bee.x = bee.tx = Math.round(maze.W / 2);
-              bee.y = bee.ty = Math.round(maze.H / 2);
-              if (!walkable(bee.x, bee.y)) { bee.x = bee.tx = 1; bee.y = bee.ty = 1; }
+              RA.fx.shake(3, 0.18);
+              RA.fx.burst(ox + bee.x * ts + ts / 2, oy + bee.y * ts + ts / 2, {
+                count: 10, colors: ['#ffd45c', '#fff0bd'], speedMin: 20, speedMax: 60
+              });
+
+              /* send it as far away as the maze allows */
+              var away = farthestCellFrom(player.cx, player.cy);
+              bee.x = bee.tx = away.x;
+              bee.y = bee.ty = away.y;
+              bee.moving = false;
+              bee.cool = 0.8;
             }
           }
         },
@@ -6221,18 +6656,27 @@ body.flat #glare { display: none; }
                            oy + s.cy * ts + ts / 2 + Math.sin(t * 3 + s.ph) * 2, {});
             }
 
-            /* bee */
+            /* bee — visibly asleep during the grace period */
             if (bee) {
+              var dozing = bee.doze > 0;
               RA.spr.drawC(ctx, 'sleepy_bee', ox + bee.x * ts + ts / 2,
-                           oy + bee.y * ts + ts / 2 + Math.sin(t * 6) * 1.5,
-                           { frame: Math.floor(t * 10) % 2 });
+                           oy + bee.y * ts + ts / 2 + Math.sin(t * (dozing ? 2 : 6)) * 1.5,
+                           { frame: dozing ? 1 : Math.floor(t * 10) % 2,
+                             alpha: dozing ? 0.55 : 1 });
+              if (dozing) {
+                RA.font.draw(ctx, 'ZZZ', ox + bee.x * ts + ts / 2 + 8,
+                             oy + bee.y * ts - 4 + Math.sin(t * 3) * 2,
+                             { scale: 1, color: C.cream, align: 'center' });
+              }
             }
 
-            /* player */
-            var pspr = player.moving ? 'girl_run' : 'girl_idle';
-            RA.spr.drawC(ctx, 'girl_idle', ox + player.x * ts + ts / 2,
-                         oy + player.y * ts + ts / 2 - 2,
-                         { flipX: player.face < 0, scale: ts >= 14 ? 1 : 0.85 });
+            /* player — blinks while she cannot be bumped again */
+            var invuln = graceT > 0;
+            if (!invuln || Math.floor(t * 10) % 2 === 0) {
+              RA.spr.drawC(ctx, 'girl_idle', ox + player.x * ts + ts / 2,
+                           oy + player.y * ts + ts / 2 - 2,
+                           { flipX: player.face < 0, scale: ts >= 14 ? 1 : 0.85 });
+            }
           }
 
           /* ---- HUD ---- */
@@ -6607,13 +7051,15 @@ body.flat #glare { display: none; }
                            { color: C.sea, scale: 1, disabled: !undoStack.length })) undo();
 
           if (!confirmClear) {
-            if (RA.ui.button(ctx, RA.W - 188, 3, 36, 18, 'CLEAR',
+            if (RA.ui.button(ctx, RA.W - 192, 2, 40, 20, 'CLEAR',
                              { color: C.brick, scale: 1 })) confirmClear = true;
           } else {
-            if (RA.ui.button(ctx, RA.W - 188, 3, 18, 18, 'Y', { color: C.brick, scale: 1 })) {
+            /* These were 18x18 with no hit tolerance — about half the
+               size a small finger reliably lands on. */
+            if (RA.ui.button(ctx, RA.W - 192, 2, 32, 20, 'YES', { color: C.brick, scale: 1 })) {
               pushUndo(); clear(); confirmClear = false;
             }
-            if (RA.ui.button(ctx, RA.W - 168, 3, 18, 18, 'N', { color: C.grey2, scale: 1 })) {
+            if (RA.ui.button(ctx, RA.W - 156, 2, 32, 20, 'NO', { color: C.grey2, scale: 1 })) {
               confirmClear = false;
             }
           }
